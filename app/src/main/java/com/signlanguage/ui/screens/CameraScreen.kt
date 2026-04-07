@@ -54,11 +54,12 @@ fun CameraScreen(
     var frameCount by remember { mutableIntStateOf(0) }
     var lastFpsTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var lastSendTimestamp by remember { mutableLongStateOf(0L) }
-    val sendInterval = 66L // ~15 FPS (66ms interval) for time-series consistency
+    
+    // Đã cập nhật: 33ms tương đương ~30 FPS để khớp với dữ liệu huấn luyện (30fps)
+    val sendInterval = 33L 
 
-    // Initialize WebSocket (Change URL to your server IP)
-    // For Emulator use: "ws://10.0.2.2:8000/ws/predict"
-    // For Real device use your computer's local IP
+    // Initialize WebSocket (Thay đổi URL theo IP server của bạn)
+    // Máy ảo: "ws://10.0.2.2:8000/ws/predict"
     LaunchedEffect(Unit) {
         viewModel.initWebSocket("ws://10.0.2.2:8000/ws/predict")
     }
@@ -128,7 +129,8 @@ fun CameraScreen(
                             }
 
                             val imageAnalysis = ImageAnalysis.Builder()
-                                .setTargetResolution(Size(224, 224)) // Resized for model efficiency
+                                // Đã cập nhật: Độ phân giải 512x512 để trích xuất feature chính xác hơn
+                                .setTargetResolution(Size(512, 512))
                                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                                 .build()
@@ -136,28 +138,25 @@ fun CameraScreen(
                             imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                 val currentTime = System.currentTimeMillis()
                                 
-                                // Update FPS display every second
+                                // Cập nhật hiển thị FPS mỗi giây
                                 if (currentTime - lastFpsTimestamp >= 1000) {
                                     viewModel.updateFps(frameCount)
                                     frameCount = 0
                                     lastFpsTimestamp = currentTime
                                 }
 
-                                // Throttling logic: Send frame only if interval has passed
-                                // This ensures consistent time-series data for the LSTM model
+                                // Cơ chế Throttling: Gửi frame theo chu kỳ 33ms (~30 FPS)
                                 if (currentTime - lastSendTimestamp >= sendInterval) {
                                     lastSendTimestamp = currentTime
                                     frameCount++
 
-                                    // Convert imageProxy to Bitmap then to JPEG ByteArray
-                                    // Using a background-safe bitmap conversion
+                                    // Chuyển đổi sang Bitmap và nén JPEG
                                     val bitmap = imageProxy.toBitmap()
                                     val stream = ByteArrayOutputStream()
-                                    // 70% quality for faster transmission with enough detail
+                                    // Nén 70% để đảm bảo tốc độ truyền tải mượt mà ở 30 FPS
                                     bitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
                                     val byteArray = stream.toByteArray()
                                     
-                                    // Send to server
                                     viewModel.sendImageToServer(byteArray)
                                 }
                                 
@@ -199,7 +198,7 @@ fun CameraScreen(
                     )
                 }
 
-                // Current recognition overlay
+                // Lớp phủ kết quả nhận diện
                 currentRecognition?.let { recognition ->
                     Box(
                         modifier = Modifier
@@ -242,7 +241,7 @@ fun CameraScreen(
                 }
             }
 
-            // Translation history card
+            // Thẻ hiển thị câu đã dịch
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -287,15 +286,8 @@ fun CameraScreen(
                     ) {
                         Text(
                             text = if (fullSentence.isEmpty()) "Đang chờ dữ liệu từ server..." else fullSentence,
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                fontSize = 18.sp,
-                                lineHeight = 26.sp
-                            ),
-                            color = if (fullSentence.isEmpty()) 
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) 
-                            else 
-                                MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.Start
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
