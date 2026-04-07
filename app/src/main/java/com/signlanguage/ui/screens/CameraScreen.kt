@@ -50,9 +50,11 @@ fun CameraScreen(
 
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
 
-    // State to track FPS
+    // State to track FPS and Throttling
     var frameCount by remember { mutableIntStateOf(0) }
     var lastFpsTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var lastSendTimestamp by remember { mutableLongStateOf(0L) }
+    val sendInterval = 66L // ~15 FPS (66ms interval) for time-series consistency
 
     // Initialize WebSocket (Change URL to your server IP)
     // For Emulator use: "ws://10.0.2.2:8000/ws/predict"
@@ -132,22 +134,32 @@ fun CameraScreen(
                                 .build()
 
                             imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                                frameCount++
                                 val currentTime = System.currentTimeMillis()
+                                
+                                // Update FPS display every second
                                 if (currentTime - lastFpsTimestamp >= 1000) {
                                     viewModel.updateFps(frameCount)
                                     frameCount = 0
                                     lastFpsTimestamp = currentTime
                                 }
 
-                                // Convert imageProxy to Bitmap then to JPEG ByteArray
-                                val bitmap = imageProxy.toBitmap()
-                                val stream = ByteArrayOutputStream()
-                                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-                                val byteArray = stream.toByteArray()
-                                
-                                // Send to server
-                                viewModel.sendImageToServer(byteArray)
+                                // Throttling logic: Send frame only if interval has passed
+                                // This ensures consistent time-series data for the LSTM model
+                                if (currentTime - lastSendTimestamp >= sendInterval) {
+                                    lastSendTimestamp = currentTime
+                                    frameCount++
+
+                                    // Convert imageProxy to Bitmap then to JPEG ByteArray
+                                    // Using a background-safe bitmap conversion
+                                    val bitmap = imageProxy.toBitmap()
+                                    val stream = ByteArrayOutputStream()
+                                    // 70% quality for faster transmission with enough detail
+                                    bitmap.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                                    val byteArray = stream.toByteArray()
+                                    
+                                    // Send to server
+                                    viewModel.sendImageToServer(byteArray)
+                                }
                                 
                                 imageProxy.close()
                             }
