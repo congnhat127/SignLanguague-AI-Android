@@ -1,5 +1,6 @@
 package com.signlanguage.ui.screens
 
+import android.graphics.Bitmap
 import android.util.Log
 import android.util.Size
 import androidx.camera.core.CameraSelector
@@ -31,8 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.signlanguage.data.ml.SignLanguageClassifier
-import com.signlanguage.data.model.Recognition
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,17 +48,21 @@ fun CameraScreen(
     val fps by viewModel.fps.collectAsState()
     val status by viewModel.status.collectAsState()
 
-    // Khởi tạo Classifier
-    val classifier = remember { SignLanguageClassifier(context) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
 
-    // State để theo dõi FPS
-    var frameCount by remember { mutableStateOf(0) }
+    // State to track FPS
+    var frameCount by remember { mutableIntStateOf(0) }
     var lastFpsTimestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    // Initialize WebSocket (Change URL to your server IP)
+    // For Emulator use: "ws://10.0.2.2:8000/ws/predict"
+    // For Real device use your computer's local IP
+    LaunchedEffect(Unit) {
+        viewModel.initWebSocket("ws://10.0.2.2:8000/ws/predict")
+    }
 
     DisposableEffect(Unit) {
         onDispose {
-            classifier.close()
             analysisExecutor.shutdown()
         }
     }
@@ -98,7 +102,7 @@ fun CameraScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Phần Camera Preview
+            // Camera Preview Section
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -117,14 +121,12 @@ fun CameraScreen(
                         cameraProviderFuture.addListener({
                             val cameraProvider = cameraProviderFuture.get()
 
-                            // Preview
                             val preview = Preview.Builder().build().also {
                                 it.setSurfaceProvider(previewView.surfaceProvider)
                             }
 
-                            // Image Analysis
                             val imageAnalysis = ImageAnalysis.Builder()
-                                .setTargetResolution(Size(640, 480))
+                                .setTargetResolution(Size(224, 224)) // Resized for model efficiency
                                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                                 .build()
@@ -138,15 +140,14 @@ fun CameraScreen(
                                     lastFpsTimestamp = currentTime
                                 }
 
-                                // Chuyển đổi imageProxy sang Bitmap và nhận diện
+                                // Convert imageProxy to Bitmap then to JPEG ByteArray
                                 val bitmap = imageProxy.toBitmap()
-                                val results = classifier.classify(bitmap)
+                                val stream = ByteArrayOutputStream()
+                                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+                                val byteArray = stream.toByteArray()
                                 
-                                if (results.isNotEmpty()) {
-                                    viewModel.updateRecognition(results[0])
-                                } else {
-                                    viewModel.updateRecognition(null)
-                                }
+                                // Send to server
+                                viewModel.sendImageToServer(byteArray)
                                 
                                 imageProxy.close()
                             }
@@ -186,7 +187,7 @@ fun CameraScreen(
                     )
                 }
 
-                // Kết quả hiện tại
+                // Current recognition overlay
                 currentRecognition?.let { recognition ->
                     Box(
                         modifier = Modifier
@@ -229,7 +230,7 @@ fun CameraScreen(
                 }
             }
 
-            // Phần hiển thị câu đã dịch
+            // Translation history card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -273,7 +274,7 @@ fun CameraScreen(
                             .verticalScroll(rememberScrollState())
                     ) {
                         Text(
-                            text = if (fullSentence.isEmpty()) "Hãy ra dấu trước camera để bắt đầu dịch..." else fullSentence,
+                            text = if (fullSentence.isEmpty()) "Đang chờ dữ liệu từ server..." else fullSentence,
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontSize = 18.sp,
                                 lineHeight = 26.sp

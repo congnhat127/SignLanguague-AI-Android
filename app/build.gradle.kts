@@ -37,10 +37,6 @@ android {
     buildFeatures {
         compose = true
     }
-    // Cấu hình để không nén file tflite
-    aaptOptions {
-        noCompress("tflite")
-    }
 }
 
 dependencies {
@@ -59,9 +55,9 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
 
-    // TensorFlow Lite
-    implementation(libs.tensorflow.lite.task.vision)
-    implementation(libs.tensorflow.lite.gpu)
+    // WebSocket Client
+    implementation(libs.okhttp)
+    implementation(libs.firebase.database)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
